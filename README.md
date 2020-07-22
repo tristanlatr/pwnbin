@@ -6,6 +6,11 @@ PwnBin is a webcrawler which searches public pastebins for specified keywords.
 All pastes are then wrote to file after program finished with predefined condition or sending completion signal Ctrl+C.  
 Email alerts can be configured and are sent when finishing program main loop.  
 
+## Install
+
+    git clone https://github.com/kahunalu/pwnbin.git
+    cd pwnbin
+    python3 -m pip install -r requirements.txt
 
 ## How to use PwnBin
   
@@ -15,8 +20,8 @@ Email alerts can be configured and are sent when finishing program main loop.
   
   Both the keyword and outputfile arguments are optional and default to 
 
-    -k ssh,pass,key,token
-    -o log.txt
+    -k <keyword1>,<keyword2> "ssh,pass,key,token" by default.
+    -o <file> "log.txt" by default.
 
   Optional command:
 
@@ -24,12 +29,12 @@ Email alerts can be configured and are sent when finishing program main loop.
   	-t <time in seconds>, Run for time in seconds.
   	-n <integer>, Run for number of pastes.
   	-m <integer>, Run for number of matches.
-    -c <filepath>, Mail server configuration file (see mail.conf)
-    -e <email1>,<email2>... Mail alerts recipients
-    -w <time in seconds>, Main loop wait time
-    -s, Use selenium to emulate web browser and avoid 403. chromedriver must be in your PATH, see https://sites.google.com/a/chromium.org/chromedriver/. For Raspberry Pi: Download and install armv7l version from https://github.com/electron/electron/releases/.
-    -v, Use virtual display. Implies -s. Require Xvbf, see https://stackoverflow.com/questions/21665914/installing-and-configuring-xvfb.
+    -c <filepath>, Mail server configuration file (see mail.conf).
+    -e <email1>,<email2>... Mail alerts recipients.
+    -w <time in seconds>, Main loop wait time. 2 seconds by default.
+    -r, Use TOR browser. 
 
+  Install Tor browser wih your favorite package manager, program uses https://github.com/erdiaker/torrequest
 
 ## Install PwnBin as a linux service (systemctl)
 
@@ -51,7 +56,7 @@ After=network.target
 Type=simple
 Restart=always
 RestartSec=300
-ExecStart=/usr/bin/python3 /path/to/pwnbin/pwnbin.py -k <keyword1>,<keyword2> -c /path/to/pwnbin/mail.conf -e me@gmail.com,you@gmail.com
+ExecStart=/usr/bin/python3 /path/to/pwnbin/pwnbin.py -k <keyword1>,<keyword2> -c /path/to/pwnbin/mail.conf -e me@gmail.com,you@gmail.com -w 60
 User=user
 
 [Install]

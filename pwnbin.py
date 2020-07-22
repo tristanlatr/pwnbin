@@ -1,10 +1,10 @@
 import time
 
-try: 
-    from urllib.request import urlopen
-    from urllib.error import HTTPError, URLError
-except ImportError: 
-    from urllib2 import urlopen, HTTPError, URLError
+# try: 
+#     from urllib.request import urlopen
+#     from urllib.error import HTTPError, URLError
+# except ImportError: 
+#     from urllib2 import urlopen, HTTPError, URLError
 
 import datetime
 import sys, getopt
@@ -22,51 +22,49 @@ from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import platform
+import requests
+from torrequest import TorRequest
 
 def main(argv):
 
     length = 0
-    time_out = False
     found_keywords = []
     mailed_keywords=[]
     paste_list = set([])
     root_url = 'http://pastebin.com'
     raw_url = 'http://pastebin.com/raw/'
     start_time = datetime.datetime.now()
-    file_name, keywords, append, run_time, match_total, crawl_total, mail_conf, emails, main_loop_wait_time, use_selenium, use_virtual_display = initialize_options(argv)
+    file_name, keywords, append, run_time, match_total, crawl_total, mail_conf, emails, main_loop_wait_time, use_tor = initialize_options(argv)
 
-    driver = None
-    display = None
-
-    if use_virtual_display:
-        from pyvirtualdisplay import Display
-        if platform.system() == "Linux" :
-            print("Starting virtual display")
-            display = Display(visible=0, size=(1920, 1200))  
-            display.start()
-        else:
-            print("Virtual display is only supported on Linuxes because it uses xvfb, continuing with real display...")
+    # if use_virtual_display:
+    #     from pyvirtualdisplay import Display
+    #     if platform.system() == "Linux" :
+    #         print("Starting virtual display")
+    #         display = Display(visible=0, size=(1920, 1200))  
+    #         display.start()
+    #     else:
+    #         print("Virtual display is only supported on Linuxes because it uses xvfb, continuing with real display...")
     
-    if use_selenium:
-        import selenium
-        from selenium import webdriver
-        print("Starting browser")
-        # Avoid error https://bugs.chromium.org/p/chromedriver/issues/detail?id=2473
-        options = webdriver.ChromeOptions()
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
+    # if use_selenium:
+    #     import selenium
+    #     from selenium import webdriver
+    #     print("Starting browser")
+    #     # Avoid error https://bugs.chromium.org/p/chromedriver/issues/detail?id=2473
+    #     options = webdriver.ChromeOptions()
+    #     options.add_argument("--no-sandbox")
+    #     options.add_argument("--disable-dev-shm-usage")
 
-        driver = webdriver.Chrome(options=options)
-        driver.set_page_load_timeout(60)
+    #     driver = webdriver.Chrome(options=options)
+    #     driver.set_page_load_timeout(60)
 
-    print("Crawling %s Press Ctrl+C to quit and save logfile to %s" % (root_url, file_name))
+    print("Crawling PasteBin... Press Ctrl+C to quit and save logfile to %s" % (file_name))
 
     try:
         # Continually loop until user stops execution
         while True:
 
             #    Get pastebin home page html
-            root_html = BeautifulSoup(fetch_page(root_url, use_selenium, driver), 'html.parser')
+            root_html = BeautifulSoup(fetch_page(root_url, use_tor=False), 'html.parser')
             
             #    For each paste in the public pastes section of home page
             for paste in find_new_pastes(root_html):
@@ -80,7 +78,9 @@ def main(argv):
                     
                     #    Add the pastes url to found_keywords if it contains keywords
                     raw_paste = raw_url+paste
-                    found_keywords = find_keywords(raw_paste, found_keywords, keywords)            
+                    found_keywords = find_keywords(raw_paste, found_keywords, keywords, use_tor)
+                    #   Sleep 2 sec before continuing
+                    time.sleep(2)            
 
             print("Crawled total of %d Pastes, Keyword matches %d" % (len(paste_list), len(found_keywords)))
             
@@ -116,25 +116,15 @@ def main(argv):
         write_out(found_keywords, append, file_name)
 
     #    If http request returns an error and 
-    except HTTPError as err:
-        if err.code == 404:
+    except requests.exceptions.HTTPError as err:
+        if err.response.status_code == 404:
             print("\n\nError 404: Pastes not found!")
-        elif err.code == 403:
+        elif err.response.status_code == 403:
             print("\n\nError 403: Pastebin is mad at you!")
         else:
-            print("\n\nYou\'re on your own on this one! Error code ", err.code)
-        write_out(found_keywords, append, file_name)
+            print("\n\nYou\'re on your own on this one! Error code ", err.response.status_code)
 
-    #    If http request returns an error and 
-    except URLError as err:
-        print ("\n\nYou\'re on your own on this one! Error code ", err)
         write_out(found_keywords, append, file_name)
-
-    finally:
-        if driver: 
-            driver.quit()
-            if display: 
-                display.stop()
 
 def write_out(found_keywords, append, file_name):
     #     if pastes with keywords have been found
@@ -164,8 +154,8 @@ def find_new_pastes(root_html):
 
     return new_pastes
 
-def find_keywords(raw_url, found_keywords, keywords):
-    paste = fetch_page(raw_url, use_selenium=False)
+def find_keywords(raw_url, found_keywords, keywords, use_tor=False):
+    paste = fetch_page(raw_url, use_tor)
     #    Todo: Add in functionality to rank hit based on how many of the keywords it contains
     for keyword in keywords:
         if paste.find(keyword.encode()) != -1:
@@ -174,23 +164,20 @@ def find_keywords(raw_url, found_keywords, keywords):
 
     return found_keywords
 
-def fetch_page(page, use_selenium, driver=None):
-    if use_selenium and driver:
-        driver.get(page)
-        html = driver.page_source
-        if 'complete a CAPTCHA' in html:
-            raise HTTPError(page, 403, "Pastebin is asking for a CAPTCHA", None, None)
-        return str(html)
-
+def fetch_page(page, use_tor=False):
+    response=None
+    if use_tor:
+        print("Fetching %s with TOR"%(page))
+        with TorRequest() as tr:
+            response = tr.get(page, headers={'User-Agent': 'Mozilla'})
     else:
-        response = urlopen(page)
-        if response.info().get('Content-Encoding') == 'gzip':
-            response_buffer = StringIO(response.read())
-            unzipped_content = gzip.GzipFile(fileobj=response_buffer)
-            return unzipped_content.read()
-        else:
-            return response.read()
+        print("Fetching %s"%(page))
+        response = requests.get(page)
 
+    response.raise_for_status()
+
+    return response.text.encode('utf-8')
+    
 def initialize_options(argv):
     keywords = ['ssh', 'pass', 'key', 'token']
     file_name = 'log.txt'
@@ -201,19 +188,20 @@ def initialize_options(argv):
     mail_conf = None
     emails = None
     main_loop_wait_time = 2
-    use_selenium = False
-    use_virtual_display = False
+    # use_selenium = False
+    # use_virtual_display = False
+    use_tor = False
 
     try:
-        opts, args = getopt.getopt(argv,"h:k:o:t:n:m:ac:e:w:sv")
+        opts, args = getopt.getopt(argv,"h:k:o:t:n:m:ac:e:w:r")
     except getopt.GetoptError:
-        print('Basic usage: pwnbin.py -k <keyword1>,<keyword2>,<keyword3>... -o <outputfile>\nVisit https://github.com/kahunalu/pwnbin for more informations.')
+        print('Basic usage: pwnbin.py -k <keyword1>,<keyword2>... -o <outputfile>\nVisit https://github.com/kahunalu/pwnbin for more informations.')
         sys.exit(2)
 
     for opt, arg in opts:
 
         if opt == '-h':
-            print('Basic usage: pwnbin.py -k <keyword1>,<keyword2>,<keyword3>... -o <outputfile>\nVisit https://github.com/kahunalu/pwnbin for more informations.')
+            print('Basic usage: pwnbin.py -k <keyword1>,<keyword2>... -o <outputfile>\nVisit https://github.com/kahunalu/pwnbin for more informations.')
             sys.exit()
 
         elif opt == '-a':
@@ -256,18 +244,21 @@ def initialize_options(argv):
         elif opt == "-w":
             main_loop_wait_time = int(arg)
 
-        elif opt == "-s":
-            use_selenium = True
+        # elif opt == "-s":
+        #     use_selenium = True
 
-        elif opt == "-v":
-            use_virtual_display = True
-            use_selenium = True
+        # elif opt == "-v":
+        #     use_virtual_display = True
+        #     use_selenium = True
+
+        elif opt == "-r":
+            use_tor = True
 
     if emails and not mail_conf:
         print("You must set mail configuration with -c <file> to send paste alerts by emails.")
         sys.exit()
 
-    return file_name, keywords, append, run_time, match_total, crawl_total, mail_conf, emails, main_loop_wait_time, use_selenium, use_virtual_display
+    return file_name, keywords, append, run_time, match_total, crawl_total, mail_conf, emails, main_loop_wait_time, use_tor
 
 def mail_paste(found_keywords, mail_conf, emails):
     print("Sending an email alert to %s for new paste %s"%(emails, found_keywords))
